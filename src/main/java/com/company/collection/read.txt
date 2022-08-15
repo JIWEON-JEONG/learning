@@ -1,0 +1,99 @@
+<컬렉션 프레임 워크>
+
+1. 컬렉션 프레임워크 란 ?
+
+"The Collection framework represents a unified architecture for storing and manipulating a group of objects."
+
+여러개의 데이터(객체)를 저장 및 표현이 가능한 클래스 들의 집합.
+
+표준화 된 인터페이스를 제공 : List, Set, Map, Queue
+필요에 따라서 구현체를 선택 가능
+
+2. 왜 컬렉션 프레임 워크를 써야하는가?
+
+여러개의 데이터(객체) 를 저장 및 표현 할 수 있는 방법으로 배열을 활용할 수 있다.
+하지만 배열을 사용하다 보면 여러가지 비효율적인 문제가 생긴다.
+
+<배열의 단점>
+1. 크기가 고정적이다.
+2. 데이터(객체)를 삭제 했을때 추가 작업이 필요하다.
+: 중간중간 특정 인덱스 안에 데이터가 비어있는 상황이 발생할 수 있다.
+
+이러한 문제를 컬렉션 프레임워크를 이용하면 편하게 해결 할 수 있다.
+
+즉 "컬렉션프레임워크는 개발자가 로우레벨에서의 고민을 줄여주고 비즈니스 로직에 집중 할 수 있도록 만들어 준다."
+
+-> WhyCollectionDemo 참조
+
+3. 컬렉션 프레임워크 자세히 살펴보기 : 각 구현체가 어떻게 되어있는지 , 특성이 어떤지 알면 필요에 따라 성능 튜닝을 할 수 있다.
+
+3.1 List : 데이터를 순서대로 저장 할 수 있다.
+
+3.1.1 ArrayList
+
+결국 ArrayList 는 배열을 활용하여 만든 클래스이다.
+동작 방식은 처음 10 이라는 크기의 배열을 할당한다. (이 크기는 튜닝 가능하다)
+
+그리고 하나씩 데이터를 채우다가 만약 배열이 꽉 찼다! 그러면 내부적으로 처음 할당한 크기의 반만큼 더 큰 배열을 하나 생성한다.
+그리고 기존의 데이터들을 복사 하고 추가들어오는 데이터를 넣어주는 식으로 작동한다.
+
+삭제 또한
+Removes the element at the specified position in this list. Shifts any subsequent elements to the left (subtracts one from their indices).
+
+이런 방식으로 진행되다 보니 , 성능적으로 문제 있지 않을까? 라는 생각도 들겠지만 , 내부적으로 최적화 작업을 이미 다 해놓았기 때문에 우리는 편하게 쓰면 된다.
+물론 필요에 따라 오버 라이딩 또는 크기 조절로 좀 더 최적화를 할수 있겠다 라는 생각도 든다.
+
+3.1.2 LinkedList
+
+Linked List 는 배열을 활용하는 것이 아닌 객체의 정보를 하나의 노드에 담아서 노드를 참조 할 수 있게 만든 클래스이다.
+Linked List 에는 size , first , last 의 노드의 정보를 가지고 있고 각 노드에는 item, next, prev 들의 정보를 가지고 있다.
+
+Linked List 에 추가 삭제 변경 작업을 할때에는 각 노드를 handling 하여 구현 하게 되어있다.
+
+예를 들어 추가 할때에는 기본 Index 가 주어지지 않았다면 last 노드의 next 정보를 수정하고 linked list 에 새로 들어온 노드의 정보를 last 에 최신화 한다.
+
+index 가 주어질 때에는 linkLast , linkbefore 두가지 조건문을 타게 되는데 첫번째는 linked List 의 마지막에 삽입되는 경우 이고 두번째는 중간에 삽입 되는 경우이다.
+
+삭제 할때에도 두가지 조건을 타게 된다.
+삭제 하고자 하는 값이 Null 일때와 Null 이 아닐때 마다 다른데 전체적인 로직에는 다르지 않고 equals 매서드는 타느냐  == null 을 타느냐 의 차이점이다.
+
+전체적인 흐름은 전 노드의 정보를 수정하고 -> 내 노드의 전 노드의 정보를 null 처리 -> 내 다음 노드의 정보 수정 -> 내 노드의 다음 노드 정보 null 처리 이런식으로 진행된다.
+
+그리고 index 값으로 해당 데이터를 찾을 수 있는데 , LinkedList 는 ArrayList 와 달리 Index 값을 내부적으로 저장 하고 있지 않는다.
+
+그래서 해당 데이터를 찾기 위해서 index 만큼 next 문을 타서 찾는 흐름으로 진행된다.
+
+ArrayList 보다 값의 수정 , 삭제 , 삽입은 빠를수 있지만 검색 측면에서 index 로 직접 찾을수 있는 ArrayList 보다 성능이 떨어지기 때문에 이는 상황에 맞게
+골라서 쓰면 될 것이다.
+
+3.1.3 HashSet & HashMap
+
+
+
+4. Equals & HashCode ( 실행 중에(Runtime) 객체의 유일한 integer값을 반환 )
+
+동일한 객체는 동일한 메모리 주소를 갖는다는 것을 의미하므로, 동일한 객체는 동일한 해시코드를 가져야 한다. 그렇기 때문에 만약 우리가 equals() 메소드를 오버라이드 한다면, hashCode() 메소드도 오버라이드 되어야 한다.
+이러한 equals와 hashCode의 관계를 정의하면 다음과 같다.
+
+Java 프로그램을 실행하는 동안 equals에 사용된 정보가 수정되지 않았다면, hashCode는 항상 동일한 정수값을 반환해야 한다. (Java의 프로그램을 실행할 때 마다 달라지는 것은 상관이 없다.)
+두 객체가 equals()에 의해 동일하다면, 두 객체의 hashCode() 값도 일치해야 한다.
+두 객체가 equals()에 의해 동일하지 않다면, 두 객체의 hashCode() 값은 일치하지 않아도 된다.
+
+즉, obj1.equals(obj2) == True 이면 hashCode(obj1) == hashCode(obj2) 이여야하지만  hashCode(obj1) == hashCode(obj2) 라고 obj1.equals(obj2) == True일 필요는 없다.
+하지만 우리는 다른 객체에 대해 동일한 hashCode를 생성한다면 hashTable을 생성하는데 불이익을 받을 수 있음을 인지하고 있어야 한다.
+
+//망나니 개발자 blog 참조
+https://mangkyu.tistory.com/101
+
+Equals_HashCode 클래스 참조!
+
+
+
+
+
+
+
+
+
+
+
