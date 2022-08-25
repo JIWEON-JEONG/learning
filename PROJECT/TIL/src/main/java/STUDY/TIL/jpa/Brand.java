@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
 
 @Entity
@@ -12,6 +13,8 @@ import javax.persistence.Id;
 @NoArgsConstructor
 public class Brand {
     @Id
+    @GeneratedValue
+    Long id;
     String name;
     String description;
 
