@@ -138,7 +138,7 @@ Spring Security에서 사용자의 정보를 불러오기 위해서 구현해야
 ![](images/userDetails.png)
 
 ## UserDetailsService
-> Spring Security에서 유저의 정보를 가져오는 인터페이스이다.
+> Spring Security 에서 저장소에 있는 유저의 정보를 가져오는 인터페이스이다.
 > 
 > loadUserByUsername 메서드 : 유저의 정보를 불러와서 UserDetails return.
 > 
