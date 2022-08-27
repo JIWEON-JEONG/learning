@@ -5,11 +5,13 @@ https://docs.spring.io/spring-security/reference/servlet/architecture.html
 > Spring Security is a framework that provides authentication, authorization, and protection against common attacks.
 >
 > Spring Security’s Servlet support is based on Servlet Filters.
+
+> 목적 : 자바 어플리케이션에서 authentication, authorization 증 기능을 제공 하는데에 중점을 둔 프레임워크.
 ## Spring Security 아키텍처
 
 ### FilterChain
 
-<img src="/Users/BestFriend/Desktop/PROJECT/TIL/src/main/java/STUDY/TIL/spring/security/images/arch.png"></img>
+![](images/arch.png)
 
 클라이언트 request 시 ->
 > 요청 URI 기반으로 HttpServletRequest 를 처리해야 하는 필터(여러개 가능)와 서블릿(단일 디스패쳐서블릿 인스턴스)이 포함된 **FilterChain** 생성.
@@ -26,7 +28,7 @@ public void doFilter(ServletRequest request, ServletResponse response, FilterCha
 
 ### DelegatingFilterProxy (delegate : 대리자)
 
-<img src="/Users/BestFriend/Desktop/PROJECT/TIL/src/main/java/STUDY/TIL/spring/security/images/DelegatingProxy.png"></img>
+![](images/DelegatingProxy.png)
 
 >Spring provides a Filter implementation named DelegatingFilterProxy that allows bridging between the Servlet container’s lifecycle and Spring’s ApplicationContext.
 >
@@ -52,7 +54,7 @@ delegate
 
 ### FilterChainProxy (Spring Security 제공)
 
-<img src="/Users/BestFriend/Desktop/PROJECT/TIL/src/main/java/STUDY/TIL/spring/security/images/FilterChainProxy.png"></img>
+![](images/FilterChainProxy.png)
 
 >Spring Security’s Servlet support is contained within FilterChainProxy.
 > 
@@ -78,7 +80,7 @@ delegate
 
 ### SecurityFilterChain (Spring Security 제공)
 
-<img src="/Users/BestFriend/Desktop/PROJECT/TIL/src/main/java/STUDY/TIL/spring/security/images/securityFilterChain.png"></img>
+![](images/securityFilterChain.png)
 
 >SecurityFilterChain is used by FilterChainProxy to determine which Spring Security Filters should be invoked for this request.
 > 
@@ -88,7 +90,7 @@ delegate
 > 
 > (Security Filters 들은 FilterChainProxy 에 등록된다.)
 
-<img src="/Users/BestFriend/Desktop/PROJECT/TIL/src/main/java/STUDY/TIL/spring/security/images/multipleSecurityChain.png"></img>
+![](images/multipleSecurityChain.png)
 
 **다중 SecurityFilterChain 그림에서 FilterChainProxy는 사용해야 하는 SecurityFilterChain을 결정. 그안의 여러 Filters 타면서 실행**
 
@@ -111,8 +113,7 @@ https://docs.spring.io/spring-security/reference/servlet/architecture.html
 
 ## Handling Security Exceptions
 
-<img src="/Users/BestFriend/Desktop/PROJECT/TIL/src/main/java/STUDY/TIL/spring/security/images/securityExceptionHandle.png"></img>
-
+![](images/securityExceptionHandle.png)
 
 > ExceptionTranslationFilter를 사용하면 AccessDeniedException 및 AuthenticationException을 HTTP 응답으로 변환할 수 있습니다. (거의 맨 마지막에 실행)
 > 
