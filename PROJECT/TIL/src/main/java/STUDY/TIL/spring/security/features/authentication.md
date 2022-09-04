@@ -119,6 +119,7 @@ Collection<? extends GrantedAuthority> authorities = authentication.getAuthoriti
 > The SecurityContextHolder is cleared out.
 >
 > AuthenticationFailureHandler is invoked
+
 4. If Success
 > Authentication set on the SecurityContextHolder. 나중에 SecurityContextPersistenceFilter는 SecurityContext를 HttpSession에 저장합니다.
 > 
