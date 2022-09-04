@@ -38,6 +38,8 @@
 - WebApps
 >Spring을 사용하면 웹 애플리케이션을 빠르고 간편하게 구축할 수 있습니다.
 > 
+> 웹서버와 웹 어플리케이션 서버.
+> 
 >By removing much of the boilerplate code and configuration associated with web development.
 
 -Batch
