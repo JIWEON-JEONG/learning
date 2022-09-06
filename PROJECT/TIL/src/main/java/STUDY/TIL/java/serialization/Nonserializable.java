@@ -1,9 +1,10 @@
 package STUDY.TIL.java.serialization;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 
 /**
- *반면에 Thread, OutputStream 및 해당 하위 클래스, Socket과 같은 특정 시스템 수준 클래스는 직렬화할 수 없습니다.
+ * 반면에 Thread, OutputStream 및 해당 하위 클래스, Socket과 같은 특정 시스템 수준 클래스는 직렬화할 수 없습니다.
  *
  * transient : 직렬화 하는 과정에서 제외 하고 싶을 경우 사용.
  *
