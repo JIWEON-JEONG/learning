@@ -1,33 +1,29 @@
-package week1;
+package week2;
 
 import java.util.ArrayList;
 import java.util.Scanner;
 
 
 public class P4 {
-
-    public static void main(String[] args) throws Exception {
-        P4 P4 = new P4();
+    public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
-        ArrayList<Integer> list = new ArrayList();
-        int sum = 0;
-        int notRegisterSum = 0;
-        int num = Integer.parseInt(scanner.nextLine());
-        for (int i = 0; i < num; i++) {
-            int val = scanner.nextInt();
-            sum += val;
-            list.add(val);
-        }
-        for (int i = 0; i < num; i++) {
-            int val = scanner.nextInt();
-            if (val == 0) {
-                notRegisterSum += list.get(i);
+        ArrayList<String> result = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            String input = scanner.next();
+            char[] chars = input.toCharArray();
+            char temp = chars[0];
+            chars[0] = chars[1];
+            chars[1] = temp;
+            StringBuilder builder = new StringBuilder();
+            for (char aChar : chars) {
+                builder.append(aChar);
             }
+            result.add(String.valueOf(builder));
         }
 
-        System.out.println(sum);
-        System.out.println(notRegisterSum);
-        
-    }
+        for (String s : result) {
+            System.out.println(s);
+        }
 
+    }
 }

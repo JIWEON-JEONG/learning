@@ -1,6 +1,7 @@
+package week1;
+
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * 첫째 줄에 로그에 기록된 출입 기록의 수 n이 주어진다.

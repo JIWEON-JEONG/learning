@@ -1,43 +1,29 @@
-package week1;
+package week2;
+
+import java.util.*;
 
 import java.util.Scanner;
 
+
 public class P2 {
-
-    //[n-1][n]
-    public static final String[][] data = {{"A", "C", "A", "G"}, {"C", "G", "T", "A"}, {"A", "T", "C", "G"}, {
-            "G", "A", "G", "T"}};
-
-    public static void main(String[] args) throws Exception {
-        P2 P2 = new P2();
+    public static void main(String[] args) {
+        P2 p2 = new P2();
+        List<String> resultList = new ArrayList<>();
         Scanner scanner = new Scanner(System.in);
-
-        int size = Integer.valueOf(scanner.nextLine());
-        String val = scanner.nextLine();
-
-        String lastValue = val.substring(size - 1);
-
-        for (int i = size - 2; i > -1; i--) {
-            String compareValue = val.substring(i,i+1);
-            lastValue = data[P2.changeInteger(compareValue)][P2.changeInteger(lastValue)];
+        String input = scanner.nextLine();
+        for (int i = 0; i < Integer.valueOf(input); i++) {
+            String name = scanner.nextLine();
+            String[] split = name.split(" ");
+            split[0] = "god";
+            String result = "";
+            StringBuilder builder = new StringBuilder(result);
+            for (String s : split) {
+                builder.append(s);
+            }
+            resultList.add(String.valueOf(builder));
         }
-
-        System.out.println(lastValue);
+        for (String s : resultList) {
+            System.out.println(s);
+        }
     }
-
-    public int changeInteger(String value) throws Exception {
-        if (value.equals("A")) {
-            return 0;
-        } else if (value.equals("G")) {
-            return 1;
-        } else if (value.equals("C")) {
-            return 2;
-        }
-        else if (value.equals("T")) {
-            return 3;
-        }
-        throw new Exception("invalid");
-    }
-
-
 }

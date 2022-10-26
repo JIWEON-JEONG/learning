@@ -1,3 +1,7 @@
+package week1;
+
+import week1.P1;
+
 import java.util.Scanner;
 
 /**

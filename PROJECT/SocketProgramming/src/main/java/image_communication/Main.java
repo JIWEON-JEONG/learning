@@ -1,50 +1,56 @@
 package image_communication;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.Inet4Address;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-public class Server {
+
+public class Main {
     // TCP Server
     ServerSocket serverSocket;
     Socket clientSocket;
-    PrintWriter out;
-    BufferedReader in;
 
-    public void startServer() {
-        try {
-            serverSocket = new ServerSocket();
-            serverSocket.bind(new InetSocketAddress(Inet4Address.getByName("172.16.39.165"), 3000));
-            System.out.println("Listen......");
-            clientSocket = serverSocket.accept();
-            System.out.println("Accept");
-            out = new PrintWriter(clientSocket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-            String message = in.readLine();
-            System.out.println(message);
-            if (message.equals("Hello Server!")) {
-                out.println("Hello Client!");
-            } else {
-                out.println("Get Out!");
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
+    BufferedInputStream bufIn;
+
+    FileInputStream fileIn;
+
+    BufferedOutputStream bufOut;
+
+
+    public void startServer() throws Exception {
+        fileIn = new FileInputStream("/Users/BestFriend/Desktop/PROJECT/SocketProgramming/ttbkk.png");
+        bufIn = new BufferedInputStream(fileIn);
+
+        serverSocket = new ServerSocket();
+        serverSocket.bind(new InetSocketAddress(Inet4Address.getByName("127.0.0.1"), 7080));
+        System.out.println("Listen...");
+
+        clientSocket = serverSocket.accept();
+        System.out.println("Accept...");
+
+        bufOut = new BufferedOutputStream(clientSocket.getOutputStream());
+        int data;
+        while ((data = bufIn.read()) != -1) {
+            bufOut.write(data);
         }
+        System.out.println("Send Complete...");
     }
 
-    public void stopServer() throws IOException {
-        in.close();
-        out.close();
+    public void stopServer() throws Exception {
+        bufIn.close();
+        fileIn.close();
+        bufOut.close();
         clientSocket.close();
         serverSocket.close();
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         Main main = new Main();
         main.startServer();
+        main.stopServer();
     }
+
 }
+

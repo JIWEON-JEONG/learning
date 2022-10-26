@@ -1,6 +1,6 @@
+package week1;
+
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Scanner;
 
 //미해결

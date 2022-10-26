@@ -1,2 +1,8 @@
-package STUDY.CUSTOM.user;public interface UserRepository {
+package STUDY.CUSTOM.user;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
 }

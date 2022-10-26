@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Study" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/goingmerry " vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/http-basic-study" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/java-baseball-playground" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/querydsl" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/spring-security" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/suwiki-remaster" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ttbkk-spring" vcs="Git" />
+  </component>
+</project>

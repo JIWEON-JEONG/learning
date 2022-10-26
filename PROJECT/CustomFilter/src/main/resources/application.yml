@@ -1,0 +1,27 @@
+spring:
+  profiles:
+    active: local
+  datasource:
+#    url: jdbc:h2:tcp://localhost/~/customAuth
+#    username: sa
+#    password:
+    url: jdbc:mysql://localhost:3306/til?useUnicode=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: password
+  jwt:
+    secret: fajdklfajklsdfjklasfjaiosdfklajfklasjfklasdjf
+  jpa:
+    hibernate:
+      ddl-auto: create
+    properties:
+      hibernate:
+        #        show_sql: true
+        format_sql: true
+logging.level:
+  org.hibernate.SQL: debug
+  # ? ???? ?? ???????
+  org.hibernate.type: trace
+
+#  main:
+#    allow-bean-definition-overriding: true
