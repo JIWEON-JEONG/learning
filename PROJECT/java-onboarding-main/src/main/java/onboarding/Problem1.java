@@ -90,6 +90,7 @@ class Problem1 {
         String stringNum = changeIntegerToString(num);
         for (int i = 0; i < stringNum.length(); i++) {
             //char 형을 int 값으로 가져오는 법.
+//            Character.getNumericValue(stringNum.charAt(i));
             int digit = stringNum.charAt(i) - '0';
             eachDigit.add(digit);
         }
