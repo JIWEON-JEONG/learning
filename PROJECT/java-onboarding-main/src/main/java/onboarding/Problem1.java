@@ -10,6 +10,9 @@ import java.util.List;
 
 // 점수를 비교해 가장 높은 사람이 게임의 승자가 된다.
 // 시작 면이나 마지막 면이 나오도록 책을 펼치지 않는다.
+
+// 99, 100 자릿수 생각도 해볼수 있다.
+// 예외 쪽 리팩토링 필요.
 class Problem1 {
 
     private boolean checkException(int page) {
