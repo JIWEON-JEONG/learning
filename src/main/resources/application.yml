@@ -1,20 +1,14 @@
 spring:
-  profiles:
-    active: local
   datasource:
-    url: jdbc:h2:tcp://localhost/~/TIL
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
+    url: jdbc:mysql://localhost:3306/ratrip_test?useUnicode=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: password
   jpa:
     hibernate:
       ddl-auto: create
     properties:
       hibernate:
-        #        show_sql: true
+        show_sql: true
         format_sql: true
-
-logging.level:
-  org.hibernate.SQL: debug
-  # ? ???? ?? ???????
-  org.hibernate.type: trace
+        use-new-id-generator-mappings: false
