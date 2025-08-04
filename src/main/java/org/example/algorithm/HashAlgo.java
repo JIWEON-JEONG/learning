@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class HashAlgo {
+    //https://school.programmers.co.kr/learn/courses/30/lessons/42576
     public String solution01(String[] participant, String[] completion) {
         Map<String, String> map = new HashMap<>();
         Map<String, Integer> duplicates = new HashMap<>();
@@ -30,7 +31,8 @@ public class HashAlgo {
      * nums/2 의 수만큼 숫자가 존재한다.
      * 숫자는 중복될 수 있고, 2가지 쌍으로 만들 수 있는 최대 가짓 수.
      */
-    public int solution(int[] nums) {
+    //https://school.programmers.co.kr/learn/courses/30/lessons/1845?language=java
+    public int solution02(int[] nums) {
         Map<Integer, Integer> map = new HashMap<>();
         for (Integer i : nums) {
            map.put(i, map.getOrDefault(i, 0) + 1);
@@ -42,7 +44,5 @@ public class HashAlgo {
 
     public static void main(String[] args) {
         HashAlgo hashAlgo = new HashAlgo();
-        int solution = hashAlgo.solution(new int[]{3, 1, 2, 3});
-        System.out.println(solution);
     }
 }

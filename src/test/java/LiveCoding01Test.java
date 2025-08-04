@@ -1,4 +1,4 @@
-import org.example.data_structure.LiveCoding01;
+import org.example.live_coding.LiveCoding01;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
