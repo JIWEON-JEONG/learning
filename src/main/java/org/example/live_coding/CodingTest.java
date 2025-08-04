@@ -1,4 +1,4 @@
-package org.example.data_structure;
+package org.example.live_coding;
 
 import java.util.*;
 

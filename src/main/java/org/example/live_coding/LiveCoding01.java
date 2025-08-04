@@ -1,7 +1,6 @@
-package org.example.data_structure;
+package org.example.live_coding;
 
 import java.util.*;
-import java.util.stream.Stream;
 
 /**
  * 조건들이 존재 하고. 우선순위를 매겨서, 점수에 따라서 결과를 도출해야한다.

@@ -1,4 +1,4 @@
-package org.example.data_structure;
+package org.example.computer_science.data_structure;
 
 /**
  * 같은 타입의 데이터들을 저장 할 수 있다.

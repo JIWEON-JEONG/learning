@@ -1,4 +1,4 @@
-package org.example.data_structure;
+package org.example.computer_science.data_structure;
 
 
 import java.util.SortedMap;
