@@ -1,7 +1,6 @@
 package org.example.algorithm;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class HashAlgo {
     //https://school.programmers.co.kr/learn/courses/30/lessons/42576
@@ -56,6 +55,33 @@ public class HashAlgo {
             }
         }
         return true;
+    }
+
+    //https://school.programmers.co.kr/learn/courses/30/lessons/42578?language=java
+    //1. 문제 정확히 이해하기.
+    //clothes[name][category]
+    //2. 구현 방식 계획하기.
+    // 곱의 법칙을 통해 문제 해결.
+    //3. 코드 작성하기 (소통하면서 작성하기)
+    //4. 코드 검증하기 (단위 테스트)
+    //5. 코드 분석하기 (시간복잡도, 최적화 고민)
+    // O(N)
+    public int solution04(String[][] clothes) {
+        int answer = 1;
+        Map<String, List<String>> clothesMap = new HashMap<>();
+        for (String[] s : clothes) {
+            List<String> values = clothesMap.get(s[1]);
+            if(values == null) {
+                values = new ArrayList<>();
+            }
+            values.add(s[0]);
+            clothesMap.put(s[1], values);
+        }
+
+        for (List<String> s : clothesMap.values()) {
+            answer *= (s.toArray().length + 1);
+        }
+        return answer - 1;
     }
 
     public static void main(String[] args) {
