@@ -6,6 +6,8 @@
 ## 배경
 - 메모리 사용 관리, 데이터 저장 최적화를 통해 시스템의 성능과 효율성을 높이기 위해 사용.
 
+## 흐름
+
 ----
 
 ## 샤드 클러스터 환경에서의 리더 선출
@@ -22,14 +24,49 @@
 > leader election 을 통해 선출된 리더 1대만 housekeeping 작업 수행.
 
 ### 구현 
-- MongoDB 의 Lease Lock을 통한 리더십 선출.
+- MongoDB 컬렉션과 Lease Lock 을 통한 리더십 선출.
   - [관련 PR](https://github.com/yorkie-team/yorkie/pull/1373)
 - [원자적 FindOneAndUpdate](https://www.mongodb.com/ko-kr/docs/manual/reference/method/db.collection.findoneandupdate/?utm_source=chatgpt.com) + 고유 싱글턴 문서 + [만료시간 TTL](https://www.mongodb.com/ko-kr/docs/manual/core/index-ttl/?utm_source=chatgpt.com) + 토큰으로 획득/갱신/양도 관리
 
-### 흐름 
+### 흐름
+
+#### go mutex.lock unlock
+> 동시에/경합적으로 호출되는 걸 막고, 공유 상태의 불변식(invariant)을 보존해야 할 때 사용.
+
+~~~
+1. Job 중복등록을 막기 위해 Lock 사용
+func (r *Yorkie) Start() error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	if err := r.RegisterHousekeepingTasks(r.backend); err != nil {
+		return err
+	}
+	...
+}
+
+2. 
+func (lm *LeadershipManager) Start(ctx context.Context) error {
+	lm.mutex.Lock()
+	defer lm.mutex.Unlock()
+
+	// Start leadership acquisition loop
+	lm.wg.Add(1)
+	go lm.leadershipLoop(ctx)
+}
+~~~
 
 #### 서버 시작 시 
-1. backend.New(...)에서 하우스키핑 인스턴스를 만들 때 DB 인스턴스와 Hostname을 주입.
+1. server.New() -> backend.New(...)에서 하우스키핑 인스턴스 생성 (Memory)
+   - DefaultLeadershipConfig 생성 (renewal 5, lease 15, renewal 마다 현시각 기준 15초 뒤로 밀어두는 방식으로 갱신)
+   - 갱신 주기 ≤ Lease의 1/3이 안전한 경험칙 [etcd](https://github.com/etcd-io/etcd/pull/9952)
+2. yorkie.Start(...)
+   - Housekeeping Tasks Register (두 가지 하우스키핑 잡을 스케줄러에 등록)
+     - 커서 기반 배치 순회를 통해 Project 선정. (lastCompactionProjectID)
+   - backend.Start() -> housekeeping.Start() -> LeadershipManagerStart()
+     - 리더십 매니저를 한 번 기동하고(고루틴 생성), “주기적으로 리더십을 획득/갱신”하는 루프 실행.
+     - renewalInterval(5s) 마다 handleLeadershipCycle() 수행.
+     - tryAcquireLeadership() : 만료되었을경우, LeaseToken 갱신
 2. backend.Start(ctx)가 호출되면 Housekeeping.Start(ctx) → 내부에서 LeadershipManager가 실행.
 
 #### LeadershipManager (주 로직 수행)
@@ -79,6 +116,23 @@ type LeadershipInfo struct {
     - 워커나 스토리지는 “현재 저장된 epoch”와 요청의 epoch가 같은지 검증.
     - 스플릿 브레인 상황에서 늦게 도착한 옛 리더의 작업(낡은 epoch)은 즉시 거부됨.
     - **리더 전환 구간에서의 중복 실행/정합성 깨짐 방지**
+
+
+### Q&A
+1. Housekeeping 을 실행하게 될 leader node 에서는 yorkie 의 비즈니스적인 요청 (그외의 요청)들에 대한 가중치가 낮아지는가?
+~~~
+첫번째로 라우팅 관련 문서 (sharded cluster mode.md) 에 관련 내용이 적시되어 있지 않은 부분과,
+두번째로는  Yorkie 의 라우팅 규칙이 "요청의 해시 키 + 일관 해싱(consistent hashing)”으로 문서/프로젝트 단위로 특정 서버에 고정 라우팅" 이 핵심이기 때문에 
+“저 서버에만 덜 보내자”처럼 임의로 비중을 낮추기는 구조적으로 쉽지 않겠다 라는 생각이 들었습니다.
+~~~
+2. housekeeping tasks(e.g., client cleanup, document compaction) 부분실패.
+~~~
+여러 태스크를 독립적으로 수행한다. 어떤 태스크가 실패해도 다른 태스크의 성공분은 유지되고, 실패한 태스크만 다음 주기에서 재시도하는 방식으로 부분실패에 대응.
+~~~
+3. 리더 선출 실패 시,
+~~~
+
+~~~
 
 ----
 
