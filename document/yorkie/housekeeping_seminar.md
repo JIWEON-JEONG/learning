@@ -66,32 +66,21 @@ func (lm *LeadershipManager) Start(ctx context.Context) error {
    - backend.Start() -> housekeeping.Start() -> LeadershipManagerStart()
      - 리더십 매니저를 한 번 기동하고(고루틴 생성), “주기적으로 리더십을 획득/갱신”하는 루프 실행.
      - renewalInterval(5s) 마다 handleLeadershipCycle() 수행.
-     - tryAcquireLeadership() : 만료되었을경우, LeaseToken 갱신
-2. backend.Start(ctx)가 호출되면 Housekeeping.Start(ctx) → 내부에서 LeadershipManager가 실행.
+   - handleLeadershipCycle() 
+     - leadership 정보가 메모리에 올라와 있을 경우
+       - TryLeadership(), 메모리의 leadership 객체 Store.
+       - 작업 실패 시, 메모리의 Leader 데이터 nil 처리를 통해 다음 틱때, 새로운 leader 선출하도록 구성.
+     - leadership 정보가 메모리에 없을 경우 (서버 재시작)
+       - TryLeadership(), 메모리의 Leader 데이터 및 boolean Store.
+   - TryLeadership()
+     - 현재 메모리에 leader lease token 이 존재하면 
+       - leader token renew. (now + 15s)
+     - 존재하지 않으면 
+       - schema 의 document expired_at 된 문서가 존재하거나 document 자체가 없을 경우, 새로운 leadership upsert.
+       - expired_at 되지 않은 문서가 존재할 경우 return.
 
-#### LeadershipManager (주 로직 수행)
-~~~
-Follower --(TryLeadership("", leaseDur) 성공 & lease.Hostname==me)--> Leader
-Leader   --(TryLeadership(token, leaseDur) 실패)------------------> Follower
-Leader   --(TryLeadership(token, leaseDur) 성공)------------------> Leader(lease 갱신)
-~~~
-
-#### Application Layer
-1. 주기(renewalInterval)마다 **database.TryLeadership**를 호출하여 현재 노드의 리더십 상태를 획득/갱신하려고 시도.
-2. 리더 여부 판단/상태 전환은 DB 호출 결과에 의존.
-3. 성공 시 내부 상태(isLeader, currentLease)를 갱신하고, 실패 시 Follower로 강등.
-4. 리더일 때만 하우스키핑 작업들을 실행.
-5. 워커는 주기마다 term 확인 → 변동 시 작업 중단(새 리더에게 양도)
-
-
-#### Database Layer (mongo)
-- 원자적 리더 획득/갱신의 모든 판단을 책임진다.
-  - 리스 만료 판단(예: expires_at <= now)
-  - 토큰 일치 검증(lease_token 비교)
-  - 단일 문서 보장(싱글턴 레코드 + 유니크 인덱스)
-  - 원자적 FindOneAndUpdate(upsert)로 획득/갱신/term 증가 처리
-  
-- 호출 결과로 현재 리더십 문서(LeadershipInfo)를 반환.
+#### 리더십(획득/갱신) 전용 루프
+> 정상적인 단일 리더를 지속적으로 유지를 목적으로 renewalInterval(5s) 마다 handleLeadershipCycle() 수행.
 
 ~~~
 type LeadershipInfo struct {
@@ -111,6 +100,7 @@ type LeadershipInfo struct {
   - **term 과 차이점** : 현재 리더만 아는 비밀 토큰을 갱신 조건으로 걸어, 과거 리더나 다른 노드가 renew를 시도해도 불일치로 거절
 - singleton: 항상 고정값으로 저장하고, 유니크 인덱스를 걸어 문서가 단 하나만 존재하도록 강제.
   - 동시 생성 경쟁에서도 리더십 문서가 복수로 생기는 일 차단.
+  - 코드가 항상 singleton: 1로만 문서를 만들고/업데이트하므로, 결과적으로 {singleton: 1} 문서는 최대 1개만 존재.
   - findOneAndUpdate(upsert) 패턴과 결합해 원자적 획득/갱신을 안전하게 적용.
 - term : 리더십 에폭(epoch)/라운드 번호. 리더가 바뀔 때 증가(갱신 중에는 유지).
     - 워커나 스토리지는 “현재 저장된 epoch”와 요청의 epoch가 같은지 검증.
@@ -131,7 +121,8 @@ type LeadershipInfo struct {
 ~~~
 3. 리더 선출 실패 시,
 ~~~
-
+메모리에 leader 정보가 존재한다면, 해당 정보를 nil & false 처리 후, 다음 Tick 때 리더 재선출 로직 (“먼저 성공한 놈이 임자(First-come / first-commit)” 
+을 통해 재처리를 통한 실패 관리.
 ~~~
 
 ----
