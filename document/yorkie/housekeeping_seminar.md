@@ -131,6 +131,7 @@ type LeadershipInfo struct {
 
 ### 배경
 - 장기간 편집으로 changes / snapshots / version_vectors 히스토리 무한 증가 → 저장공간·성능 저하
+- 재생 비용(replay)과 스냅샷 관리 비용 개선.
 
 ### 해결
 > 현재 최종 상태를 기반으로 “새 초기 변경(initial change)” 를 만들어 히스토리를 리셋하고, 이전 changes/snapshots/version_vectors 는 제거.
@@ -140,63 +141,89 @@ type LeadershipInfo struct {
 
 #### 라운드트립 검증
 - 
-#### 현재 CRDT 상태 스냅샷 생성 (YSON)
-- 
+#### YSON
+~~~
+배경 : 
+1. JSON 타입에는 string, number, boolean, null, array, object 같은 일반 타입이 있지만
+반면 CRDT는 Counter, Text(리치 텍스트), Tree, Timestamp, VersionVector 같은 도메인 특화 타입/메타데이터가 필요. 
+
+2. JSON은 키 순서, 공백/개행, 유니코드 이스케이프, 숫자 표기(1 vs 1.0 vs 1e0) 등으로 표현 다양성이 커서, “의미가 같은 문서”라도 바이트가 달라질 수 있음.
+
+3. **“스냅샷이 진실인가?”의 검증이 아니라, 여러 커밋(변경 이력)을 한 개의 초기 커밋으로 합쳐도 문서의 최종 상태가 1비트도 안 바뀌는지를 검증하는 것!**
+~~~
+- YSON(Yorkie Serialized Object Notation): JSON과 달리 CRDT 고유 타입 정보(예: Counter, Text, Tree, VersionVector 등)를 함께 담아 정확히 복원을 위한 목적.
+- 라운드트립 보장: CRDT 내부 상태 → YSON → 문서에 다시 주입(SetYSON)하는 왕복 변환이 가능해서, “현재 상태만으로 새 초기 변경(initial change)을 만드는” 컴팩션 절차가 간단·안전해짐.
 
 ### 흐름
-#### Application Layer
-- RunHousekeepingTick(ctx)
-  1. 리더일 때만 실행되는 하우스키핑 틱에서 컴팩션 후보를 조회하고, 각 후보에 대해 CompactDocument를 호출.
-- CompactDocument(ctx, docID)
-  1. 분산 락 획득(문서 단위)
-  2. Attach 클라이언트 없음 재확인(있으면 중단)
-  3. 현재 CRDT 상태 스냅샷 생성(구조적 직렬화; 설계 이슈에서는 YSON 언급)
-  4. 라운드트립 검증(스냅샷 → 재구성 결과가 현재 상태와 동일해야 함)
-  5. db.CompactChangeInfos(...) 호출로 히스토리 원자 치환
-  6. 로그/메트릭 기록(후보 수, 성공/실패, 소요시간 등)
 
-#### Database Layer (mongo)
-- FindCompactionCandidates(ctx, projectID, limit, minChanges) ([]DocumentID, error)
-    - 프로젝트/임계치 기반으로 컴팩션 후보 문서를 찾음.
+#### housekeeping scheduling (30s) 마다 CompactDocuments() 수행 
+> CompactDocuments() : lastCompactionProjectID 이후의 프로젝트들을 일정 개수(projectFetchSize)만큼 훑으면서,   
+> 각 프로젝트에서 컴팩션 후보 문서를 최대 candidatesLimitPerProject 만큼 뽑아 최소 변경 수(compactionMinChanges) 이상인 문서들 일괄 컴팩션.
 
-- IsDocumentAttached(ctx, docID) (bool, error)
-  - 부착 여부 확인. 하나라도 붙어 있으면 즉시 중단.
+1. LockerWithTryLock() 
+  - 대기열·병목 방지: mutex.Lock로 기다리게 하면 실행이 줄줄이 쌓여서 전체 지연이 커짐.
+  - 리소스 피크 억제: 컴팩션은 IO/CPU 헤비 작업이라 동시 2개 이상 돌면 스토리지 피크.
+  - Mutex Lock 을 통해 작업 중 들어오는 Job 을 바로 반환(no-op).
+2. FindCompactionCandidates()
+  - FindNextNCyclingProjectInfos()
+    - lastProjectID 커서를 기반으로 pageSize 개수 만큼 조회.
+    - 만약 pageSize 만큼 projects 가 없다면, 부족한 개수만큼 랩어라운드 조회. -> 전체 데이터를 순회하면서 언제나 pageSize 만큼 조회.
+  - range FindCompactionCandidatesPerProject() - Compaction Project 후보자 (candidatesLimit 내에서 붙은 클라이언트가 없고 && 변경 수가 임계 이상)
+    - (candidatesLimit * 2) 선 조회 후, 조건 부 탈락. 
+    > 문제 : 정렬/커서가 없어 항상 “앞쪽 일부”만 보게 되고, 그 일부에서 이미 30개를 채워버리면 뒤쪽은 영원히 기회가 없음. 
+    > -> 프로젝트 내부에도 커서가 필요하지 않을까? 
+    - 조회 한 documents 들을 순회하며, candidatesLimit / isAttached / compactionMinChanges 조건 부 필터링.
+    - return Candidates
+3. Candidates 를 순회하며, Housekeeping.CompactDocument() 수행.
+  > 병렬로 처리 하지 않은 이유가 있을까?  
+  - Connect Document 는 책임지는 문서의 소유/책임 노드 로 내부 RPC 전송. 
+  - 하우스키핑 리더는 후보만 고르고, 실제 컴팩션은 그 문서를 담당하는 노드에서 RPC로 실행. 
+  - 실패 시 continue -> "언젠간 후보가 되어서 시도 될거야~ 대신 로그는 찍어두자."
+4. ClusterRPC.CompactDocument() - RPC Entry point
+  - (project-doc) key 기반 mutex Lock 을 통해, 문서 동시 접근 문제 해결.
+  - document 실제 compact 수행.
+5. compaction.Compact() - 실제 compaction 수행 함수
+  - attach client = 0 확인. 
+  - BuildInternalDocForServerSeq() : DB의 변경 이력을 ServerSeq 까지 적용해 최종 문서 생성. (Storage 반영하지 않은 상태. 즉 검증되지 않은 상태)
+    - Cache 에서 최근 Snapshot 조회 (DeepCopy 를 통한 캐시 오염 방지)
+    - 캐시에 Document 가 없거나, 캐시의 ServerSeq 가 더 앞서있는경우 (비교군은 내부 RPC 에서 doc info 를 조회 할때의 serverSeq)
+      - Closest Snapshot ServerSeq 기반으로 조회 
+      - NewInternalDocumentFromSnapshot() : 베이스 스냅샷을 내부 문서로 복원하고, Lamport/Vector/Checkpoint를 그 시점 맞춘다. // 이유 추가 
+    - FindChangesBetweenServerSeqs() : base Seq ~ 목표 Server Seq 까지 changeInfo 조회. 
+    - ApplyChangePack()
+    - GC 수행 
+      - GetMinVersionVector() 를 통해 참여자들(서버·활성/동기화 대상 클라이언트)의 체크포인트를 모아 좌표별 최솟값 조회.
+      - GarbageCollect() 를 통해 ≤ MinVV 면 삭제.
+    - 캐시 반영, Deep Copy() Return.
+  - [YSON 기반 라운드트립 검증](#-라운드트립-검증).
+  - 캐시 무효화 
+  - CompactChangeInfos() 을 통한 변경 영속화
+    1. purgeDocumentInternals(...) : 메모리캐시, ColChanges, ColVersionVectors, ColSnapshots 컬렉션 모두 삭제.
+    > 문제 : 삭제 후, Insert 실패시 영구 손상을 초래하지 않나? 
+    2. ColChanges.InsertOne(...) : 초기 변경을 changes 컬렉션에 Insert.
+    3. ColDocuments.UpdateOne(...) : 조건부 업데이트 (compaction base SEQ) 로 동일한지, 동일하다면 해당 문서의 ServerSEQ, time 업데이트.
 
-- ReadMaterializedState(ctx, docID) (StateBlob, error) 
-  - 현재 CRDT 상태를 컴팩션 검증용으로 읽어옴(스냅샷 또는 재구성).
 
-- CompactChangeInfos(ctx, docID, initialChange, vv, opts) error
-  - 원자 치환 단계:
-    1. 기존 changes / snapshots / versionvectors 제거
-    2. “현재 상태를 의미하는 새 초기 변경(initial change)” 1건 삽입
-    3. 관련 메타(serverSeq 리셋, DocInfo.CompactedAt 갱신 등) 일괄 갱신
-  - 트랜잭션/원자 업데이트로 중간 불일치 상태 방지.
+#### 최소 버전 벡터(MinVV)
+- 의미: “이 문서와 관련된 모든 참여자(서버/붙어있는 클라이언트/아직 동기화될 수 있는 주체)가 최소한 여기까지는 봤다”는 공통 하한선.
+- 하우스키핑의 inactive client deactivation 같은 게 MinVV를 끌어올려 GC가 더 진행되도록 도와준다.
 
+### Q&A
+
+1. 스냅샷에 대한 검증은 없을까?
+
+#### 직접적으로 검증에 대한 로직은 없지만, 각 절차 별 간접적으로 검증을 하게 된다.
 ~~~
-리더 선출 진입점:
-housekeeping.Start(ctx) → 내부에서 LeadershipManager.Start(ctx) → leadershipLoop() →
-tryAcquireLeadership/renewLease → (리더일 때) 하우스키핑 틱 실행
 
-워커에서 term 사용:
-틱 시작 시 expectedTerm := CurrentLease().Term 캡처 →
-배치마다 Leader(ctx) or CurrentLease()로 term 재확인 → 변동 시 중단
+1. converter.BytesToSnapshot 으로 스냅샷을 CRDT 루트 객체 + presences로 역직렬화 할 때, 스냅샷 자체에 대한 검증.
+2. 적용(Apply) 중 인과/참조 검증 
+  - 인과 불일치: 변경의 사전조건(선행 변경) 이 스냅샷 상태와 맞지 않음 (삭제된 요소 재삭제 같은)
 
-컴팩션 진입점:
-RunHousekeepingTick → FindCompactionCandidates → 후보마다 CompactDocument →
-내부에서 락/부착검증/YSON검증 → db.CompactChangeInfos(원자치환)
-
-DB 계약 핵심:
-TryLeadership: 만료 판단/토큰 검증/term 증가/원자성 보장은 DB 책임
-CompactChangeInfos: 한 번에 치환하여 중간 불일치 상태를 만들지 않음
+3. 체크포인트 전진
+  - 한 개씩(순서대로) 리플레이해서 T에 정확히 도달했는가 검증 -> 시나리오 대로, 스냅샷 생성이 진행되었다 검증. 
 ~~~
 
-#### 요약
-1. (하우스키핑 틱) 후보 조회 → 프로젝트별 FindCompactionCandidates
-2. 후보별 분산 락 → 부착 없음 재확인
-3. 현재 상태 스냅샷 생성 + 라운드트립 검증
-4. CompactChangeInfos 호출로 changes/snapshots/VV 원자 치환 + compactedAt 갱신
-5. 메트릭/로그 기록, 락 해제
-6. (다음 틱) 새 후보 계속 처리
+
 
 ## Stale Client Deactivation
 
