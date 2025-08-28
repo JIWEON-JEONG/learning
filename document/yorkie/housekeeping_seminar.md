@@ -241,58 +241,85 @@ type LeadershipInfo struct {
 - 주기적인 비활성화로 문서의 히스토리 정리와 GC 조건 충족을 돕는다.
 - [관련 Doc](https://github.com/yorkie-team/yorkie/blob/main/design/garbage-collection.md?utm_source=chatgpt.com)
 
-### 구현
-#### Application Layer
-- RunHousekeepingTick(ctx)(리더 전용)
-  1. 비활성 후보 검색: “마지막 활동 시각 < 임계치” && 클라이언트 상태가 Activated
-  2. 후보별 DeactivateClient(ctx, clientRefKey) 호출
-  3. 시작 전에 현재 term 스냅샷 캡처 → 배치 중간에 term 변경 시 즉시 중단/양도
-
-- DeactivateClient
-  1. 사전 조건 검사(원자적): 해당 클라이언트의 ClientDocInfo에 Attaching/Attached 문서가 0 이어야 함(없어야 비활성화 가능)
-  2. 만족하면 상태를 Deactivated로 전이, 문서 detach 및 presence clear(필요 시) 수행
-  3. 결과 반환(최신 ClientInfo)
-
-- [관련 PR](https://github.com/yorkie-team/yorkie/pull/1414)
-
-#### Database Layer (Mongo)
-
-- FindStaleClients(project, threshold, limit): 
-  - 임계치를 넘긴 후보 조회(프로젝트/배치 한도 적용)
-- DeactivateClient(clientRefKey):
-  - 필터: status==Activated AND documents[*].status ∉ {Attaching, Attached}
-  - 업데이트: status ← Deactivated, deactivatedAt ← now(), 필요 시 presence 정리용 플래그/데이터 갱신
-- Detach/Presence 처리 보조: 
-  - Detach 시작 시 DocPullKey 락, presence clear를 위한 ChangePack 생성.
-
-~~~
-type ClientInfo struct {
-  RefKey     string              // 클라이언트 식별자
-  Status     string              // Activated | Deactivated
-  LastSeen   time.Time           // 활동 시각(후보 판정 기준)
-  Documents  map[DocID]ClientDocInfo // 각 문서에 대한 상태
-}
-
-type ClientDocInfo struct {
-  Status     string // Attaching | Attached (없으면 미첨부)
-  // ...
-}
-
-
-type LeadershipInfo struct {
-  Hostname   string
-  LeaseToken string
-  ElectedAt  time.Time
-  ExpiresAt  time.Time
-  RenewedAt  time.Time
-  Term       int64
-  Singleton  int
-}
-~~~
-
 ### 흐름
 
-1. (리더) RunHousekeepingTick
-2. Stale Client 후보 조회 → DeactivateClient (Attaching/Attached 존재 시 거부) → Detach/Presence 정리(락 사용)
-3. Document Compaction 후보 처리(락 → 라운드트립 검증 → 원자 치환)
-4. 메트릭/로그 기록, 다음 틱으로 반복
+#### housekeeping scheduling (30s) 마다 DeactivateInactives() 수행
+
+1. LockerWithTryLock()
+- 대기열·병목 방지: mutex.Lock로 기다리게 하면 실행이 줄줄이 쌓여서 전체 지연이 커짐.
+- 리소스 피크 억제: 컴팩션은 IO/CPU 헤비 작업이라 동시 2개 이상 돌면 스토리지 피크.
+- Mutex Lock 을 통해 작업 중 들어오는 Job 을 바로 반환(no-op).
+
+2. FindDeactivateCandidates() 
+   - FindNextNCyclingProjectInfos() : 프로젝트 후보 조회 (라운드로빈 - 순차적 cursor 접근)
+     - lastProjectID 커서를 기반으로 pageSize 개수 만큼 조회.
+     - 만약 pageSize 만큼 projects 가 없다면, 부족한 개수만큼 랩어라운드 조회. -> 전체 데이터를 순회하면서 언제나 pageSize 만큼 조회.
+   - FindDeactivateCandidatesPerProject() : ColClients 컬렉션의 updated_at 기준, DeactivateThreshold(24) 이상 후보 조회.
+     - candidate limit 만큼 조회.
+     - ColClients : 클라이언트 메타데이터를 저장 컬렉션.
+       - 클라이언트 메타데이터를 저장.
+   - 실패 시, return 후 다음 Tick 재시도.
+
+3. candidates 순회하면서, Deactivate. (클라이언트 1명을 대상으로 “붙어 있는 모든 문서 Detach → 클라이언트 비활성화)
+    - FindActiveClientInfo : 현재 Activated 인지 확인 + 현재 클라이언트가 “어떤 문서들에 어떤 상태로 붙어 있는지” 정보 조회.
+      - 실패 시 종료 (return)
+    - FindDocInfoByRefKey : prject_id, doc_id 기반 document 조회.
+    - 하우스키핑 리더는 후보만 고르고, 실제 Document Detach는 그 문서를 담당하는 노드에서 RPC로 실행.
+    - ClusterRPC.DetachDocument() - RPC Entry point
+      - Lock(actorID, key.Key(req.Msg.DocumentKey)) : 동시에 Push/Pull/Detach를 던지면 순서 꼬임·중복 전송·체크포인트 불일치 (MUTEX 기반 인스턴스 lock)
+      - FindActiveClientInfo : 클라이언트가 현재 Activated 인지, 그리고 문서별 체크포인트 조회.
+      - FindLatestChangeInfoByActor() : 내 ServerSeq 안에서 (원문 ServerSeq 보다 작거나 같은), 이 actor가 마지막으로 만든 변경 조회.
+      - change.NewContext(): 해당 ServerSEQ 기준 새 TimeTicket 발급.
+      - presence.Clear():  presence 생성 후(생성 시 TimeTicket 필요), 변경 컨텍스트 생성 후 Clear() 호출
+      - change.NewPack(): presence-clear 변경을 기반으로 ChangePack 생성.
+      - RLock(packs.DocKey(project.ID, pack.DocumentKey)) : PushPull 작업 쓰기 보장.
+      - 문서에 동시에 붙을 수 있는 클라이언트 수 제한 있을 경우 : Lock - 공유변수 변경 예정이기때문에. PushPull 작업 쓰기 보장.
+      - PushPull(PushOnly + Detached Mode)
+        - pushPack : ColChanges 변경 반영하고, 문서 VV 갱신, 체크포인트 갱신.
+        - pullPack: PushOnly 이기 때문에 진행 X.
+        - 로그/메트릭
+        - DocChanged 이벤트 발행: 다른 구독자/노드가 감지 가능 (백프로세스)
+    
+    - 실패 처리:
+      - 에러가 나면 즉시 함수 종료(fail-fast).
+      - 반환 커서는 DefaultProjectID로 돌려보냄 → 호출측에서 커서를 갱신하지 않게 하려는 의도. 즉, 다음 주기에 같은 지점부터 재시도하게 된다.
+        - 여기까지 성공한 것들(부분 성공)은 그대로 반영됨(롤백 없음). 실패한 그 한 건 때문에 뒤에 남은 후보들은 이번 라운드에선 건드리지 않는다.
+
+
+
+### Yorkie가 문서에 기록하는 각 변경(Change) 의 필요한 2가지 
+> TimeTicket, VersionVector 가 필요하다. 
+
+#### TimeTicket = (lamport, actorID[, delimiter])
+- Lamport (분산 논리 시계)
+  - 각 클라이언트가 가진 논리 시계로 로컬/수신 이벤트의 순서를 맞춘다.
+  - 로컬 변경: L = L + 1
+  - 메시지 전송: 메시지에 현재 L을 실어서 보냄
+  - 외부 이벤트(메시지) 수신: L = max(L, L_msg) + 1 ← 단순히 +1이 아니라, 내 시계와 상대의 시계 중 큰 값에 +1
+~~~
+INSERT 'abc' 연산의 티켓:
+('lamport=101', delimiter=1, actor=a1) → 'a'
+('lamport=101', delimiter=2, actor=a1) → 'b'
+('lamport=101', delimiter=3, actor=a1) → 'c'
+~~~
+
+#### VersionVector
+- 참여자(=actorID)별 알고 있는(적용한) 세계선의 경계
+~~~
+VV = { A: 5, B: 3, C: 2 }  // A가 만든 변경은 5까지 포함, B는 3까지, C는 2까지 포함
+~~~
+
+- Detach 할때 뿐아니라, 변경,삭제 등 이벤트 일어날때마다 티켓, VV 이용해서 ColChanges 만들고 그거 기반으로 GC 도하고 Push Pull 때도 쓰고, 
+  여러가지로 쓰이는 개념이다. 
+- Detach 할때, 쓰는 이유는 Detach 하기 전의 변경이 있을 수 있으니까 그건 결국 변경이기 때문에 그걸 반영하려고 Context 만들어서 쓰는거다.
+
+### Presence
+> 문서 내용(content)과는 별개로, 각 클라이언트(세션)가 ‘지금 어떤 상태/위치인지’를 표현  
+> ex) 커서 위치, 선택 영역, 사용자명/색상, 현재 편집 모드
+
+#### Presence 와 변경(Change) 관계
+- 인과 정렬
+~~~
+텍스트가 5자 삽입된 직후에 커서가 +5 이동했다는 presence 업데이트 -> 삽입 이후에 적용되어야 커서가 올바른 위치를 가리킴.
+~~~
+- presence 업데이트도 TimeTicket이 박힌 change로 만들어 전송.
