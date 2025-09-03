@@ -263,7 +263,7 @@ type LeadershipInfo struct {
 3. candidates 순회하면서, Deactivate. (클라이언트 1명을 대상으로 “붙어 있는 모든 문서 Detach → 클라이언트 비활성화)
     - FindActiveClientInfo : 현재 Activated 인지 확인 + 현재 클라이언트가 “어떤 문서들에 어떤 상태로 붙어 있는지” 정보 조회.
       - 실패 시 종료 (return)
-    - FindDocInfoByRefKey : prject_id, doc_id 기반 document 조회.
+    - FindDocInfoByRefKey: project_id, doc_id 기반 document 조회.
     - 하우스키핑 리더는 후보만 고르고, 실제 Document Detach는 그 문서를 담당하는 노드에서 RPC로 실행.
     - ClusterRPC.DetachDocument() - RPC Entry point
       - Lock(actorID, key.Key(req.Msg.DocumentKey)) : 동시에 Push/Pull/Detach를 던지면 순서 꼬임·중복 전송·체크포인트 불일치 (MUTEX 기반 인스턴스 lock)
@@ -301,6 +301,17 @@ INSERT 'abc' 연산의 티켓:
 ('lamport=101', delimiter=1, actor=a1) → 'a'
 ('lamport=101', delimiter=2, actor=a1) → 'b'
 ('lamport=101', delimiter=3, actor=a1) → 'c'
+
+2. 두개의 클라이언트 예시 (인과보존)
+초기 A:L=0, B:L=10
+
+A가 변경 ⇒ A:L=1, 티켓 (1, a1)
+
+B가 변경 ⇒ B:L=11, 티켓 (11, b1) ← 서로 다른 값, OK
+
+A가 B의 변경 수신 ⇒ A:L=max(1,11)+1=12 (이제 A의 미래 변경은 B 변경 뒤)
+
+B가 A의 변경 수신 ⇒ B:L=max(11,1)+1=12
 ~~~
 
 #### VersionVector
@@ -323,3 +334,79 @@ VV = { A: 5, B: 3, C: 2 }  // A가 만든 변경은 5까지 포함, B는 3까지
 텍스트가 5자 삽입된 직후에 커서가 +5 이동했다는 presence 업데이트 -> 삽입 이후에 적용되어야 커서가 올바른 위치를 가리킴.
 ~~~
 - presence 업데이트도 TimeTicket이 박힌 change로 만들어 전송.
+
+## Q&A 정리
+
+1. Database interface 구현체  (server/backend/database/database.go) 현재 Database 구현체로서 memory 와 mongo 2개의 구현체로 관리하는 이유.
+
+~~~
+인메모리 DB를 둔 이유는 Go 생태계 친화적인 환경 & 빠르게 테스트 환경을 구축하기 위함.
+MongoDB 등 외부 인프라 컴포넌트를 사용하지 않더라도 Yorkie 구동을 위해 구현체 2개로 관리.
+~~~  
+
+
+2. FindCompactionCandidatesPerProject (server/backend/database/mongo/client.go) 에서
+candidatesLimit*2 수 만큼 document 를 조회 -> 조건부 탈락 (attach 여부, change limit 제한 등) -> 후보군 return 흐름으로 구현되어있다. **만약 candidatesLimit2 보다 project 가 가지고 있는 document 수가 많다면 "candidatesLimit2 수 만큼 document 를 조회" 시 매번 소외 되는 document 가 존재하지 않을까?**
+
+> 예를 들어, A 프로젝트에 1 ~ 100 개의 document 가 존재하고 candidatesLimit 가 40 일때,
+> 80 ~ 100 번까지는 조회 조차 안되는것이 아닌가 라는 의문.
+
+~~~
+https://github.com/yorkie-team/yorkie/pull/1468 해당 PR 에서 해결. 
+
+result, err := c.collection(ColDocuments).Aggregate(ctx, mongo.Pipeline{
+	bson.D{{Key: "$match", Value: bson.M{
+		"project_id": project.ID,
+		"server_seq": bson.M{"$gte": compactionMinChanges},
+	}}},
+
+...
+
+server_seq 조건 추가 및 N+1 문제를 해결한 PR.
+~~~
+
+
+3. CompactChangeInfos()  (server/backend/database/database.go) 에서 
+purgeDocumentInternals (ColChanges, VersionVectors, Snapshot Delete) -> 한개의 커밋으로 Insert -> Document 조건부 업데이트 흐름으로 구현되어있다.
+따로 트랜잭션으로 묶여있지않은 상태에서 만약 purgeDocumentInternals  가 수행되고 Insert 하는과정에서 장애가 일어난다면,
+복구 시나리오 와 purge 를 먼저 하는 이유? 
+
+~~~
+**실패 시나리오의 경우** 
+
+실패 시 로그에 YSON 콘텐츠가 남기 때문에, 필요하면 Admin API를 통해 수동으로 업데이트/복원 로직으로 실패 시나리오 대응.
+
+운영 초기에는 관찰 + 수동 개입으로 대응하고, 추후 운영 경험이 쌓이면 재시도 로직이나 자동 복구 전략을 점진적으로 추가하는 방향성.
+
+**Purge 를 먼저 하는 이유** 
+
+name: ColChanges,
+    indexes: []mongo.IndexModel{{
+				{Key: "doc_id", Value: int32(1)}, // shard key
+				{Key: "project_id", Value: int32(1)},
+				{Key: "server_seq", Value: int32(1)},
+	},
+	Options: options.Index().SetUnique(true),
+},
+...
+
+현재, {doc_id, project_id, server_seq} 하나의 인덱스로 잡혀있음.
+삭제 하지 않고 Insert 시 충돌 발생. (server_seq = 1 로 insert 하기 때문)
+
+그럼에도 불구하고 수동 개입으로 대응 하기 전에는 조회 시, Cache 에 데이터가 없어서 내부 문서를 만드는 과정에서 서버 에러가 날 수 있을 것 같다 (snapshot - colchanges 부재로 인한)
+
+~~~
+
+~~~
+해결방법 모색중 ... (Discord 논의 했을 때, 우선순위가 그리 높지 않은걸로 확인) 
+~~~
+
+
+4. DeactivateInactives (server/clients/housekeeping.go) 후보군을 선별 후 range 를 돌면서 deactivate 를 하는 과정에서 한번의
+client 라도 deactivate 가 실패하면 그 이후의 deactivate 를 더이상 하지 않고 바로 return 하는 로직으로 수행되는걸로 이해하고 있는데요.
+이렇게 구현되어있는 이유?
+
+~~~
+멘토님의 예상으로는, 
+DeactivateInactives 함수의 정의가 ‘후보군 Client들을 모두 Deactivate 한다’ 일텐데, 일부가 실패했으니 전체가 실패한 경우로 취급하려고 한 게 아닐까 예상.
+~~~
